@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.2.0"
+  required_version = ">= 1.5.0"
+  
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -10,108 +11,38 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-}
 
-# 1. AWS SQS - Dead Letter Queue (DLQ)
-resource "aws_sqs_queue" "tust_dlq" {
-  name                      = "${var.project}-dlq-${var.environment}"
-  message_retention_seconds = 1209600 # 14 dias
+  # Credenciales Mock para LocalStack (Requeridas para evitar error "No valid credential sources")
+  access_key = var.use_localstack ? "mock_access_key" : null
+  secret_key = var.use_localstack ? "mock_secret_key" : null
+
+  # ====================================================
+  # SOPORTE HÍBRIDO: LocalStack (Testing) o AWS Real
+  # ====================================================
+  skip_credentials_validation = var.use_localstack
+  skip_metadata_api_check     = var.use_localstack
+  skip_requesting_account_id  = var.use_localstack
   
-  tags = {
-    Environment = var.environment
-    Project     = var.project
-  }
-}
-
-# 2. AWS SQS - Inbound Queue (Fila Principal)
-resource "aws_sqs_queue" "tust_queue" {
-  name                      = "${var.project}-queue-${var.environment}"
-  # KEDA Long Polling Optimization
-  receive_wait_time_seconds = 20
+  # Forzar Path Style si es LocalStack
+  s3_use_path_style           = var.use_localstack
   
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.tust_dlq.arn
-    maxReceiveCount     = 5
-  })
-
-  tags = {
-    Environment = var.environment
-    Project     = var.project
+  # Endpoints dinámicos (solo se activan si hay valores en el map)
+  dynamic "endpoints" {
+    for_each = length(var.aws_service_endpoints) > 0 ? [1] : []
+    
+    content {
+      sqs      = lookup(var.aws_service_endpoints, "sqs", null)
+      dynamodb = lookup(var.aws_service_endpoints, "dynamodb", null)
+      s3       = lookup(var.aws_service_endpoints, "s3", null)
+      iam      = lookup(var.aws_service_endpoints, "iam", null)
+    }
   }
-}
-
-# 3. AWS DynamoDB - Tabela de Idempotência
-resource "aws_dynamodb_table" "tust_idempotency" {
-  name           = "${var.project}-idempotency-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "IdempotencyKey"
-
-  attribute {
-    name = "IdempotencyKey"
-    type = "S"
-  }
-
-  tags = {
-    Environment = var.environment
-    Project     = var.project
-  }
-}
-
-# 4. AWS S3 - Data Lake (Raw)
-resource "aws_s3_bucket" "tust_datalake" {
-  bucket = "${var.project}-datalake-raw-${var.environment}-${random_string.suffix.result}"
   
-  tags = {
-    Environment = var.environment
-    Project     = var.project
+  default_tags {
+    tags = {
+      Project     = "TUST"
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
   }
-}
-
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
-
-# 5. IAM Policy - Least Privilege para o Worker
-resource "aws_iam_policy" "tust_worker_policy" {
-  name        = "${var.project}-worker-policy-${var.environment}"
-  description = "Politica de Least Privilege para os Workers do TUST (KEDA)"
-  
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = aws_sqs_queue.tust_queue.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = [
-          "sqs:SendMessage"
-        ]
-        Resource = aws_sqs_queue.tust_dlq.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = [
-          "dynamodb:PutItem",
-          "dynamodb:GetItem"
-        ]
-        Resource = aws_dynamodb_table.tust_idempotency.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = [
-          "s3:PutObject"
-        ]
-        Resource = "${aws_s3_bucket.tust_datalake.arn}/*"
-      }
-    ]
-  })
 }
