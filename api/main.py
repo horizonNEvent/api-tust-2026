@@ -109,7 +109,9 @@ async def run_robot(config_id: int, db: Session = Depends(get_db)):
             "base": getattr(config, 'base', 'UNKNOWN'),
             "agente": str(agente),
             "competencia": competencia_atual,
-            "config_id": config.id
+            "config_id": config.id,
+            "username": config.username,
+            "password": config.password
         }
         
         try:

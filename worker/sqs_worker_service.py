@@ -134,6 +134,14 @@ class SQSWorkerService:
             output_dir = os.path.join(DOWNLOADS_ROOT, f"{chave_unica}")
             cmd = ["python", script_path, "--output_dir", output_dir, "--agente", agente, "--empresa", base]
             
+            # Adiciona credenciais se existirem no payload
+            username = body.get('username')
+            password = body.get('password')
+            if username:
+                cmd.extend(["--user", username])
+            if password:
+                cmd.extend(["--password", password])
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode != 0:
