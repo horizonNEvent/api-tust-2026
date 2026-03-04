@@ -17,3 +17,7 @@ Thumbs.db
 Tust-AETE/
 downloads/
 infra/
+tust_api.db
+sql_app.db
+check_db.py
+
