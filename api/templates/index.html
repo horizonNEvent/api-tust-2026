@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUST Admin - Config de Robôs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            color: white;
+        }
+
+        .card {
+            border: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+        }
+
+        .table thead {
+            background-color: #f1f5f9;
+        }
+
+        .btn-run {
+            background-color: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .btn-run:hover {
+            background-color: #059669;
+            color: white;
+        }
+
+        .badge-active {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-inactive {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="navbar mb-4 shadow-sm">
+        <div class="container py-2">
+            <a class="navbar-brand text-white fw-bold" href="/admin/">📦 TUST Admin 2026</a>
+        </div>
+    </nav>
+
+    <div class="container pb-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="fw-bold">Configurações de Robôs</h2>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAdd">➕ Novo Robô</button>
+        </div>
+
+        <div class="card p-3">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Robô</th>
+                        <th>Base</th>
+                        <th>Identificador (Label)</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for config in configs %}
+                    <tr>
+                        <td><code>#{{ config.id }}</code></td>
+                        <td class="fw-bold text-uppercase">{{ config.robot_type }}</td>
+                        <td><span class="badge bg-secondary">{{ config.base }}</span></td>
+                        <td>{{ config.label }}</td>
+                        <td>
+                            {% if config.active %}
+                            <span class="badge badge-active">Ativo</span>
+                            {% else %}
+                            <span class="badge badge-inactive">Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-outline-primary"
+                                    onclick="openEditModal({{ config.id }})">✏️</button>
+                                <button class="btn btn-sm btn-run mx-1" onclick="runRobot({{ config.id }})">🚀</button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                    onclick="deleteConfig({{ config.id }})">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal Add/Edit -->
+    <div class="modal fade" id="modalAdd" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="modalTitle">Cadastrar Novo Robô</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="formConfig" onsubmit="saveConfig(event)">
+                    <div class="modal-body row g-3">
+                        <input type="hidden" id="config_id">
+                        <div class="col-md-6">
+                            <label class="form-label">Tipo do Robô (Script)</label>
+                            <input type="text" class="form-control" id="robot_type" placeholder="ex: assu, cnt"
+                                required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Base / Tenant</label>
+                            <input type="text" class="form-control" id="base" placeholder="ex: AE, DE, RE" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Identificador (Label amigável)</label>
+                            <input type="text" class="form-control" id="label" placeholder="ex: ASSU - Base AE (Libra)"
+                                required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Usuário (Opcional)</label>
+                            <input type="text" class="form-control" id="username">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Senha (Opcional)</label>
+                            <input type="text" class="form-control" id="password">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Agentes (JSON)</label>
+                            <textarea class="form-control" id="agents_json" rows="4"
+                                placeholder='{"8011": "Nome Agente"}' required></textarea>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="active" checked>
+                                <label class="form-check-label" for="active">Ativo para agendamento</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Fechar</button>
+                        <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Armazena as configurações no lado do cliente para evitar problemas de aspas no HTML
+        const configs = {{ configs| tojson | safe }};
+
+        async function saveConfig(e) {
+            e.preventDefault();
+            const configId = document.getElementById('config_id').value;
+            const data = {
+                robot_type: document.getElementById('robot_type').value,
+                base: document.getElementById('base').value,
+                label: document.getElementById('label').value,
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                agents_json: document.getElementById('agents_json').value,
+                active: document.getElementById('active').checked
+            };
+
+            const method = configId ? 'PUT' : 'POST';
+            const url = configId ? `/configs/${configId}` : '/configs/';
+
+            try {
+                const resp = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (resp.ok) location.reload();
+                else alert("Erro ao salvar: " + await resp.text());
+            } catch (err) { alert("Falha na conexão."); }
+        }
+
+        function openEditModal(id) {
+            const config = configs.find(c => c.id === id);
+            if (!config) return;
+
+            document.getElementById('modalTitle').innerText = "Editar Robô " + config.id;
+            document.getElementById('config_id').value = config.id;
+            document.getElementById('robot_type').value = config.robot_type;
+            document.getElementById('base').value = config.base;
+            document.getElementById('label').value = config.label;
+            document.getElementById('username').value = config.username || "";
+            document.getElementById('password').value = config.password || "";
+            document.getElementById('agents_json').value = config.agents_json || "[]";
+            document.getElementById('active').checked = config.active;
+            new bootstrap.Modal('#modalAdd').show();
+        }
+
+
+        async function deleteConfig(id) {
+            if (!confirm("Deseja realmente excluir esta configuração?")) return;
+            try {
+                const resp = await fetch(`/configs/${id}`, { method: 'DELETE' });
+                if (resp.ok) location.reload();
+            } catch (err) { alert("Erro ao deletar."); }
+        }
+
+        async function runRobot(id) {
+            try {
+                const resp = await fetch(`/robots/run/${id}`, { method: 'POST' });
+                const data = await resp.json();
+                alert(`✅ Sucesso! ${data.mensagens_disparadas} mensagens enviadas para a fila SQS.`);
+            } catch (err) { alert("Erro ao disparar robô."); }
+        }
+    </script>
+
+</body>
+
+</html>

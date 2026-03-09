@@ -11,22 +11,24 @@ class S3Service:
         self.region = os.getenv("AWS_REGION", "us-east-1").strip().replace('"', '').replace("'", "")
         self.bucket_name = os.getenv("S3_BUCKET_NAME", "").strip().replace('"', '').replace("'", "")
 
-        self.s3 = boto3.client(
-            's3',
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            region_name=self.region
-        )
+        endpoint_url = "http://localhost:4566" if os.getenv("USE_LOCALSTACK", "true").lower() == "true" else None
+        
+        req_args = {
+            "region_name": self.region,
+            "endpoint_url": endpoint_url,
+            "aws_access_key_id": "test",
+            "aws_secret_access_key": "test"
+        }
+        self.s3_client = boto3.client('s3', **req_args)
 
-    def upload_file(self, local_path, competence, agent_name, transmissora_name, filename):
+    def upload_file(self, local_path, s3_key):
         """
-        Faz o upload de um arquivo para o S3 seguindo a estrutura:
-        [Competência] / [Agente] / [Pasta Transmissora] / [Arquivo]
+        Faz o upload de um arquivo para o S3 seguindo a exata estrutura gerada pelo Robô.
         """
-        s3_key = f"{competence}/{agent_name}/{transmissora_name}/{filename}"
         try:
-            self.s3.upload_file(local_path, self.bucket_name, s3_key)
-            return f"s3://{self.bucket_name}/{s3_key}"
+            buck = "datalake-raw" if self.bucket_name == "" else self.bucket_name
+            self.s3_client.upload_file(local_path, buck, s3_key)
+            return f"s3://{buck}/{s3_key}"
         except Exception as e:
             print(f"Erro ao fazer upload para o S3: {e}")
             return None

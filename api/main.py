@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
@@ -11,8 +13,21 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-sqs_client = boto3.client('sqs', region_name=os.getenv("AWS_REGION", "us-east-1"))
-SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "FAKE_URL")
+endpoint_url = "http://localhost:4566" if os.getenv("USE_LOCALSTACK", "true").lower() == "true" else None
+req_args = {
+    "region_name": os.getenv("AWS_REGION", "us-east-1"),
+    "endpoint_url": endpoint_url,
+}
+if endpoint_url:
+    req_args["aws_access_key_id"] = "test"
+    req_args["aws_secret_access_key"] = "test"
+
+sqs_client = boto3.client('sqs', **req_args)
+
+if endpoint_url:
+    SQS_QUEUE_URL = f"http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/TUST-Inbound-Queue"
+else:
+    SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "FAKE_URL")
 
 from core.database import SessionLocal, engine, Base, get_db
 from core.models import RobotConfig, RobotExecution, Empresa, DocumentRegistry, Transmissora
@@ -26,6 +41,9 @@ app = FastAPI(
     description="API central para execução e agendamento de robôs de coleta de dados via mensageria (KEDA).",
     version="2.0.0"
 )
+
+# Configuração de Templates
+templates = Jinja2Templates(directory="api/templates")
 
 # Schemas Pydantic
 class RobotConfigBase(BaseModel):
@@ -53,7 +71,20 @@ def startup_event():
 
 @app.get("/")
 def read_root():
-    return {"message": "Bem-vindo à API Tust KEDA 2026"}
+    return {"message": "Bem-vindo à API Tust KEDA 2026. Acesse /admin/ para gerenciar robôs."}
+
+# --- Interface Administrativa (HTML) ---
+
+@app.get("/admin/", response_class=HTMLResponse)
+def admin_page(request: Request, db: Session = Depends(get_db)):
+    configs = db.query(RobotConfig).all()
+    # Converte para dict para facilitar o tojson no template
+    configs_list = [c.__dict__ for c in configs]
+    # Remove estados internos do SQLAlchemy que podem quebrar o JSON
+    for c in configs_list:
+        c.pop('_sa_instance_state', None)
+        
+    return templates.TemplateResponse("index.html", {"request": request, "configs": configs_list})
 
 # --- Robot Config CRUD ---
 
@@ -68,6 +99,29 @@ def create_config(config: RobotConfigCreate, db: Session = Depends(get_db)):
 @app.get("/configs/", response_model=List[RobotConfigResponse])
 def list_configs(db: Session = Depends(get_db)):
     return db.query(RobotConfig).all()
+
+@app.put("/configs/{config_id}", response_model=RobotConfigResponse)
+def update_config(config_id: int, config_data: RobotConfigCreate, db: Session = Depends(get_db)):
+    db_config = db.query(RobotConfig).filter(RobotConfig.id == config_id).first()
+    if not db_config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    for key, value in config_data.model_dump().items():
+        setattr(db_config, key, value)
+    
+    db.commit()
+    db.refresh(db_config)
+    return db_config
+
+@app.delete("/configs/{config_id}")
+def delete_config(config_id: int, db: Session = Depends(get_db)):
+    db_config = db.query(RobotConfig).filter(RobotConfig.id == config_id).first()
+    if not db_config:
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+    
+    db.delete(db_config)
+    db.commit()
+    return {"message": "Configuração removida com sucesso"}
 
 # --- Execução Otimizada via Mensageria (Event Driven) ---
 
@@ -115,14 +169,13 @@ async def run_robot(config_id: int, db: Session = Depends(get_db)):
         }
         
         try:
-            # Em DEV local podemos apagar essa parte de sqs
-            # sqs_client.send_message(
-            #     QueueUrl=SQS_QUEUE_URL,
-            #     MessageBody=json.dumps(payload)
-            # )
-            pass
+            sqs_client.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(payload)
+            )
         except Exception as e:
-            print(f"Erro falso silencioso no SQS Local: {e}")
+            print(f"Erro ao postar na Fila SQS: {e}")
+            raise HTTPException(status_code=500, detail="Erro de infraestrutura SQS")
             
         print(f"Emitting Event SQS: {payload}")
         sqs_messages_disparadas += 1
