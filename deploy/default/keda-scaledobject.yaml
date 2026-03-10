@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: tust-worker-default
+  namespace: tust-apps
+spec:
+  scaleTargetRef:
+    name: deployment-worker-default
+  # Mantem de 0 a 20 pods paralelos baseado na fila (Economia Total)
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  pollingInterval: 10 # Segundos que o KEDA olha pra fila
+  cooldownPeriod: 300 # Tempo ate zerar se nao tiver mais nada
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: "{SQS_QUEUE_URL_STANDARD}" # A ser injetado pelo Terraform
+        queueLength: "5" # Sobe um Pod a cada 5 mensagens
+        awsRegion: "us-east-1"
+        identityOwner: keda

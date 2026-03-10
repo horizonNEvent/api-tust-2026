@@ -6,6 +6,7 @@ import json
 import time
 import subprocess
 import signal
+import argparse
 from botocore.exceptions import ClientError
 from tenacity import retry, wait_fixed, stop_after_attempt, retry_if_exception_type
 
@@ -17,6 +18,12 @@ SQS_DLQ_URL = os.getenv("SQS_DLQ_URL", "https://sqs.us-east-1.amazonaws.com/1234
 DYNAMO_TABLE = os.getenv("DYNAMO_TABLE", "TUST-Idempotency")
 DOWNLOADS_ROOT = os.getenv("DOWNLOADS_ROOT_PATH", "./downloads")
 ROBOTS_ROOT = os.getenv("ROBOTS_ROOT_PATH", "./Robots")
+
+# Definicoes Mocks do LocalStack
+LOCALSTACK_URL = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000"
+LOCALSTACK_INBOUND = f"{LOCALSTACK_URL}/TUST-Inbound-Queue"
+LOCALSTACK_OCR = f"{LOCALSTACK_URL}/TUST-Queue-OCR"
+LOCALSTACK_DLQ = f"{LOCALSTACK_URL}/TUST-DeadLetter-Queue"
 
 # Inicializa clientes AWS (Apontando pro docker localstack em testes na sua máquina)
 # Em produção AWS, essas envvars AWS vars já cuidam disso.
@@ -31,14 +38,20 @@ req_args = {
 sqs_client = boto3.client('sqs', **req_args)
 dynamodb_client = boto3.client('dynamodb', **req_args)
 
-# Precisamos consertar a URL da Fila
-if endpoint_url:
-    SQS_QUEUE_URL = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/TUST-Inbound-Queue"
-    SQS_DLQ_URL = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/TUST-DeadLetter-Queue"
-
 class SQSWorkerService:
-    def __init__(self):
+    def __init__(self, target_queue):
         self.is_shutting_down = False
+        self.queue_url = target_queue
+        
+        # Conserta a URL da Fila se for LocalStack
+        if endpoint_url:
+            if "Inbound" in self.queue_url:
+                self.queue_url = LOCALSTACK_INBOUND
+            elif "OCR" in self.queue_url:
+                self.queue_url = LOCALSTACK_OCR
+            global SQS_DLQ_URL
+            SQS_DLQ_URL = LOCALSTACK_DLQ
+            
         signal.signal(signal.SIGINT, self.graceful_shutdown)
         signal.signal(signal.SIGTERM, self.graceful_shutdown)
 
@@ -96,7 +109,7 @@ class SQSWorkerService:
             try:
                 # Long Polling: Espera até 20 segundos por uma mensagem, reduz requisições vazias.
                 response = sqs_client.receive_message(
-                    QueueUrl=SQS_QUEUE_URL,
+                    QueueUrl=self.queue_url,
                     MaxNumberOfMessages=1,
                     WaitTimeSeconds=20,
                 )
@@ -137,7 +150,7 @@ class SQSWorkerService:
             if self.check_dynamo_idempotencia(chave_unica):
                 print(f"[SKIP] ABORTANDO: Fatura já processada anteriormente segundo DynamoDB ({chave_unica}).")
                 # Deleta a mensagem do SQS pois o trabalho já está feito e poupa a máquina (Custo $0).
-                sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
+                sqs_client.delete_message(QueueUrl=self.queue_url, ReceiptHandle=receipt_handle)
                 return
 
             print(f"[RUN] Não processado. Iniciando Subprocesso do Robô {robot_type}.py...")
@@ -217,7 +230,7 @@ class SQSWorkerService:
             self.mark_as_processed_dynamo(chave_unica)
 
             # --- 4. EXCLUIR DA FILA PRINCIPAL ---
-            sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
+            sqs_client.delete_message(QueueUrl=self.queue_url, ReceiptHandle=receipt_handle)
             print("[OK] Mensagem processada e removida do SQS Worker Kubernetes.")
 
         except Exception as e:
@@ -225,14 +238,21 @@ class SQSWorkerService:
             self.send_to_dlq(message)
             # Ao ir para a DLQ, também a deletamos da fila principal para não ficar em Loop Infinito
             try:
-                sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
+                sqs_client.delete_message(QueueUrl=self.queue_url, ReceiptHandle=receipt_handle)
             except Exception:
                 pass
 
 if __name__ == "__main__":
-    worker = SQSWorkerService()
-    print("""
+    parser = argparse.ArgumentParser(description='Worker KEDA para TUST')
+    parser.add_argument('--queue', type=str, default='TUST-Inbound-Queue', help='Nome da Fila SQS Alvo')
+    args = parser.parse_args()
+
+    worker = SQSWorkerService(target_queue=args.queue)
+    print(f"""
     [OK] WORKER PRONTO E CONECTADO NO LOCALSTACK.
+    ---------------------------------------------------
+    🎯 TIPO DE MÁQUINA: OUVINDO FILA: {args.queue}
+    ---------------------------------------------------
     Aguardando mensagens da Nuvem...
     """)
     worker.start_polling()

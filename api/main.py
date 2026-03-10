@@ -26,8 +26,10 @@ sqs_client = boto3.client('sqs', **req_args)
 
 if endpoint_url:
     SQS_QUEUE_URL = f"http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/TUST-Inbound-Queue"
+    SQS_QUEUE_URL_OCR = f"http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/TUST-Queue-OCR"
 else:
     SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "FAKE_URL")
+    SQS_QUEUE_URL_OCR = os.getenv("SQS_QUEUE_URL_OCR", "FAKE_URL_OCR")
 
 from core.database import SessionLocal, engine, Base, get_db
 from core.models import RobotConfig, RobotExecution, Empresa, DocumentRegistry, Transmissora
@@ -168,9 +170,16 @@ async def run_robot(config_id: int, db: Session = Depends(get_db)):
             "password": config.password
         }
         
+        # --- ROTEAMENTO INTELIGENTE (DUAL QUEUE) ---
+        # Robôs pesados vão para a fila OCR. Robôs leves vão para a fila Padrão.
+        if config.robot_type.lower() in ['light']:
+            target_queue = SQS_QUEUE_URL_OCR
+        else:
+            target_queue = SQS_QUEUE_URL
+            
         try:
             sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
+                QueueUrl=target_queue,
                 MessageBody=json.dumps(payload)
             )
         except Exception as e:
