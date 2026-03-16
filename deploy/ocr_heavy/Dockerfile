@@ -12,7 +12,8 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     wkhtmltopdf \
-    libgl1 \
+    libgl1-mesa-glx \
+    libgomp1 \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \

@@ -13,7 +13,7 @@ print("Inicializando nuvem local AWS (LocalStack)...")
 
 # 1. Cria Filas SQS
 sqs = boto3.client('sqs', **req)
-filas = ['TUST-Inbound-Queue', 'TUST-Queue-OCR', 'TUST-DeadLetter-Queue']
+filas = ['TUST-Inbound-Queue', 'TUST-DeadLetter-Queue']
 for fila in filas:
     try:
         print(f"Criando Fila SQS: {fila}")

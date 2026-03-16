@@ -22,7 +22,6 @@ ROBOTS_ROOT = os.getenv("ROBOTS_ROOT_PATH", "./Robots")
 # Definicoes Mocks do LocalStack
 LOCALSTACK_URL = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000"
 LOCALSTACK_INBOUND = f"{LOCALSTACK_URL}/TUST-Inbound-Queue"
-LOCALSTACK_OCR = f"{LOCALSTACK_URL}/TUST-Queue-OCR"
 LOCALSTACK_DLQ = f"{LOCALSTACK_URL}/TUST-DeadLetter-Queue"
 
 # Inicializa clientes AWS (Apontando pro docker localstack em testes na sua máquina)
@@ -45,10 +44,7 @@ class SQSWorkerService:
         
         # Conserta a URL da Fila se for LocalStack
         if endpoint_url:
-            if "Inbound" in self.queue_url:
-                self.queue_url = LOCALSTACK_INBOUND
-            elif "OCR" in self.queue_url:
-                self.queue_url = LOCALSTACK_OCR
+            self.queue_url = LOCALSTACK_INBOUND
             global SQS_DLQ_URL
             SQS_DLQ_URL = LOCALSTACK_DLQ
             
